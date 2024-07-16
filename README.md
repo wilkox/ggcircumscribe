@@ -44,11 +44,10 @@ example_data <- data.frame(
 )
 
 ggplot(example_data, aes(x = time, y = space, label = observation)) +
-  geom_abs_circle(radius = grid::unit(10, "mm")) +
-  geom_circumscribe(radius = grid::unit(20, "mm"), fontsize = 2, grow = TRUE) +
+  geom_abs_circle(radius = grid::unit(20, "mm")) +
+  geom_circumscribe(radius = grid::unit(20, "mm"), grow = TRUE) +
   scale_x_continuous(limits = c(0, 10)) +
   scale_y_continuous(limits = c(0, 10))
-#> ! The `grow` argument is not yet implemented
 #> ! The `reflow` argument is not yet implemented
 ```
 
@@ -58,7 +57,7 @@ ggplot(example_data, aes(x = time, y = space, label = observation)) +
 
 Currently planned features and changes:
 
-- Implement ‘grow’ and ‘reflow’ parameters
+- Implement ‘reflow’ parameter
 - Change reflowing algorithm to optimise for a circle rather than a
   square
 - Support angled text

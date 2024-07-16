@@ -93,7 +93,6 @@ GeomCircumscribe <- ggplot2::ggproto(
   ),
 
   setup_params = function(data, params) {
-    cli::cli_alert_warning("The {.arg grow} argument is not yet implemented")
     cli::cli_alert_warning("The {.arg reflow} argument is not yet implemented")
     params
   },
@@ -220,22 +219,25 @@ makeContent.circumscribetree <- function(gt) {
     bottomys <- grid::convertHeight(grid::unit(lines$y, "npc"), "mm", valueOnly = TRUE) - (lines$height / 2) - (lines$dheight)
     ys <- c(topys, bottomys)
 
-    # Determine the distance from the origin of each vertex, in mm, with padding
-    ds <- sqrt(abs(xs ^ 2 + ys ^ 2)) + grid::convertWidth(gt$padding, "mm", valueOnly = TRUE)
+    # Determine the distance from the origin to each vertex, in mm
+    ds <- sqrt(abs(xs ^ 2 + ys ^ 2))
 
-    # Find the ratio between the highest distance and the radius of the circle;
-    # this is the scaling factor
-    scaling_factor <- as.numeric(gt$radius) / max(ds)
+    # Find the ratio between the highest distance and the radius of the circle
+    # minus padding; this is the scaling factor
+    scaling_factor <- (as.numeric(gt$radius) - grid::convertWidth(gt$padding, "mm", valueOnly = TRUE)) / max(ds)
 
-    # Scale everything down
-    lines$tg <- lapply(
-      lines$tg,
-      function(tg) {
-        tg$gp$fontsize <- tg$gp$fontsize * scaling_factor
-        tg
-      }
-    )
-    lines$y <- lines$y * scaling_factor
+    # If the text is larger than the circle (i.e. scaling_factor < 1), or if
+    # grow is set, resize the text to fit the circle
+    if (scaling_factor < 1 | gt$grow) {
+      lines$tg <- lapply(
+        lines$tg,
+        function(tg) {
+          tg$gp$fontsize <- tg$gp$fontsize * scaling_factor
+          tg
+        }
+      )
+      lines$y <- lines$y * scaling_factor
+    }
 
     # Re-centre the textGrobs on the circle centre
     lines$x <- lines$x + text$x
