@@ -3,13 +3,14 @@ library(grid)
 grid.newpage()
 
 # Dev parameters
-dev_label <- "Joggers"
+dev_label <- "Early morning joggers"
 dev_x <- 0.5 # the x-coordinate of the circle centre
 dev_y <- 0.5 # the y-coordinate of the circle centre
 dev_radius <- unit(50, "mm")
 dev_fontsize <- 90
 dev_gpar_text <- gpar(fontsize = dev_fontsize)
 dev_lineheight <- 1.4
+dev_padding <- 4 # in mm
 
 #' Calculate the width of a textGrob, in mm
 #' 
@@ -102,8 +103,8 @@ topys <- grid::convertHeight(grid::unit(lines$y, "npc"), "mm", valueOnly = TRUE)
 bottomys <- grid::convertHeight(grid::unit(lines$y, "npc"), "mm", valueOnly = TRUE) - (lines$height / 2) - (lines$dheight)
 ys <- c(topys, bottomys)
 
-# Determine the distance from the origin of each vertex, in mm
-ds <- sqrt(abs(xs ^ 2 + ys ^ 2))
+# Determine the distance from the origin of each vertex, in mm, with padding
+ds <- sqrt(abs(xs ^ 2 + ys ^ 2)) + dev_padding
 
 # Find the ratio between the highest distance and the radius of the circle;
 # this is the scaling factor
