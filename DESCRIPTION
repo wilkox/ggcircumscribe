@@ -1,4 +1,4 @@
-Package: ggiristext
+Package: ggcircumscribe
 Title: What the Package Does (One Line, Title Case)
 Version: 0.0.0.9000
 Authors@R: 
@@ -8,5 +8,5 @@ License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.1
-URL: https://github.com/wilkox/ggiristext
-BugReports: https://github.com/wilkox/ggiristext/issues
+URL: https://github.com/wilkox/ggcircumscribe
+BugReports: https://github.com/wilkox/ggcircumscribe/issues
