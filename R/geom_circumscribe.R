@@ -16,25 +16,26 @@
 #' after reflowing, it will be shrunk as usual. Existing line breaks are
 #' respected when reflowing.
 #'
-#' TODO need to figure out a principled mapping of data to radius, or
-#' alternatively another aesthetic that could reasonably be mapped to radius.
+#' For now, radius is expressed as an absolute parameter rather than a plot
+#' aesthetic. This is liable to change in future.
 #'
 #' @section Aesthetics:
 #'
 #' - label (required)
 #' - x (required)
 #' - y (required)
-#' - radius (required)
 #' - alpha
 #' - angle
 #' - colour
 #' - family
 #' - fontface
 #' - lineheight
-#' - size
+#' - fontsize
 #'
 #' @param mapping,data,stat,position,na.rm,show.legend,inherit.aes,... Standard
 #' geom arguments as for `ggplot2::geom_text()`.
+#' @param radius Radius of the circle. A `grid::unit()` object. Defaults to 50
+#' mm.
 #' @param padding Padding between the text and the circle. A `grid::unit()`
 #' object. Defaults to `grid::unit(4, "mm")`.
 #' @param grow If `TRUE`, text will be made as large as able to fit in the
@@ -51,6 +52,7 @@ geom_circumscribe <- function(
   na.rm = FALSE,
   show.legend = NA,
   inherit.aes = TRUE,
+  radius = grid::unit(50, "mm"),
   padding = grid::unit(4, "mm"),
   grow = FALSE,
   reflow = FALSE,
@@ -66,6 +68,7 @@ geom_circumscribe <- function(
     inherit.aes = inherit.aes,
     params = list(
       na.rm = na.rm,
+      radius = radius,
       padding = padding,
       grow = grow,
       ...
@@ -78,15 +81,15 @@ geom_circumscribe <- function(
 GeomCircumscribe <- ggplot2::ggproto(
   "GeomCircumscribe",
   ggplot2::Geom,
-  required_aes = c("label", "x", "y", "radius"),
+  required_aes = c("label", "x", "y"),
   default_aes = ggplot2::aes(
     alpha = 1,
-    angle = 2,
+    angle = 0,
     colour = "black",
     family = "",
     fontface = 1,
     lineheight = 1.4,
-    size = 12
+    fontsize = 12
   ),
 
   setup_params = function(data, params) {
@@ -103,6 +106,7 @@ GeomCircumscribe <- ggplot2::ggproto(
     data,
     panel_scales,
     coord,
+    radius = grid::unit(50, "mm"),
     padding = grid::unit(4, "mm"),
     grow = FALSE,
     reflow = FALSE
@@ -114,6 +118,7 @@ GeomCircumscribe <- ggplot2::ggproto(
     # Set up gTree
     gt <- grid::gTree(
       data = data,
+      radius = radius,
       padding = padding,
       grow = grow,
       reflow = reflow,
@@ -136,25 +141,18 @@ makeContent.circumscribetree <- function(gt) {
 
     text <- data[i, ]
 
-    # Return a simple textGrob
-    tg <- grid::textGrob(label = text$label, x = 0.5, y = 0.5, gp = grid::gpar(fontsize = 70))
-    return(tg)
-
-    # Dev parameters
-    dev_label <- "Early morning joggers"
-    dev_x <- 0.5 # the x-coordinate of the circle centre
-    dev_y <- 0.5 # the y-coordinate of the circle centre
-    dev_radius <- unit(50, "mm")
-    dev_fontsize <- 90
-    dev_gpar_text <- gpar(fontsize = dev_fontsize)
-    dev_lineheight <- 1.4
-    dev_padding <- 4 # in mm
-
-    # Draw the circle
-    grid.circle(r = dev_radius, x = dev_x, y = dev_y, gp = gpar(fill = "blue", alpha = "0.5"))
+    # Set up base gpar
+    base_gpar <- grid::gpar(
+      alpha = text$alpha,
+      angle = text$angle,
+      col = text$colour,
+      fontsize = text$fontsize,
+      fontfamily = text$family,
+      fontface = text$fontface
+    )
 
     # Split the label into lines
-    label <- dev_label
+    label <- text$label
     lines <- unlist(stringi::stri_split(label, regex = "\n"))
 
     # Identify all the line-wise locations of whitespace in the text (i.e.
@@ -179,7 +177,7 @@ makeContent.circumscribetree <- function(gt) {
     }, character(1))
 
     # Calculate each wrap's aspect ratio
-    wraps$tg <- lapply(wraps$wrap, function(wrap) { textGrob(label = wrap, gp = dev_gpar_text) })
+    wraps$tg <- lapply(wraps$wrap, function(wrap) { grid::textGrob(label = wrap, gp = base_gpar) })
     wraps$width <- vapply(wraps$tg, tgWidth, double(1))
     wraps$height <- vapply(wraps$tg, tgHeight, double(1))
     wraps$aspect_ratio <- wraps$width / wraps$height
@@ -194,7 +192,7 @@ makeContent.circumscribetree <- function(gt) {
     # Generate a textGrob for each line
     lines$tg <- lapply(
       lines$label,
-      function(label) textGrob(label = label, gp = dev_gpar_text)
+      function(label) grid::textGrob(label = label, gp = base_gpar)
     )
 
     # Calculate the height, descender-height, and width of each line
@@ -203,7 +201,7 @@ makeContent.circumscribetree <- function(gt) {
     lines$dheight <- vapply(lines$tg, tgDheight, double(1))
 
     # Set a lineheight in npc based on the tallest line height
-    lineheight <- grid::unit(dev_lineheight * max(lines$height), "mm")
+    lineheight <- grid::unit(text$lineheight * max(lines$height), "mm")
     lineheight <- grid::convertHeight(lineheight, "npc", valueOnly = TRUE)
 
     # Distribute the lines, centred on (0, 0)
@@ -221,11 +219,11 @@ makeContent.circumscribetree <- function(gt) {
     ys <- c(topys, bottomys)
 
     # Determine the distance from the origin of each vertex, in mm, with padding
-    ds <- sqrt(abs(xs ^ 2 + ys ^ 2)) + dev_padding
+    ds <- sqrt(abs(xs ^ 2 + ys ^ 2)) + grid::convertWidth(gt$padding, "mm", valueOnly = TRUE)
 
     # Find the ratio between the highest distance and the radius of the circle;
     # this is the scaling factor
-    scaling_factor <- as.numeric(dev_radius) / max(ds)
+    scaling_factor <- as.numeric(gt$radius) / max(ds)
 
     # Scale everything down
     lines$tg <- lapply(
@@ -238,8 +236,8 @@ makeContent.circumscribetree <- function(gt) {
     lines$y <- lines$y * scaling_factor
 
     # Re-centre the textGrobs on the circle centre
-    lines$x <- lines$x + dev_x
-    lines$y <- lines$y + dev_y
+    lines$x <- lines$x + text$x
+    lines$y <- lines$y + text$y
 
     # Pan-sear the textGrobs to really seal in the Cartesian coordinates
     lines$tg <- lapply(1:nrow(lines), function(i) {
@@ -249,14 +247,10 @@ makeContent.circumscribetree <- function(gt) {
       tg
     })
 
-    # Draw the lines
-    for (tg in lines$tg) {
-      grid.draw(tg)
-    }
-
-
+    return(lines$tg)
   })
 
+  textgrobs <- unlist(textgrobs, recursive = FALSE)
   class(textgrobs) <- "gList"
   grid::setChildren(gt, textgrobs)
 }
