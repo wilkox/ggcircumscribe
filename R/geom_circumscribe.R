@@ -1,36 +1,35 @@
 # Set up grid
 library(grid)
 grid.newpage()
-warning("This assumes a square plot area, to account for non-square plot area, units will need to be converted to absolute values (mm)")
 
 # Dev parameters
-dev_label <- "Early morning joggers"
+dev_label <- "Joggers"
 dev_x <- 0.5 # the x-coordinate of the circle centre
 dev_y <- 0.5 # the y-coordinate of the circle centre
-dev_radius <- unit(0.3, "npc")
+dev_radius <- unit(50, "mm")
 dev_fontsize <- 90
 dev_gpar_text <- gpar(fontsize = dev_fontsize)
 dev_lineheight <- 1.4
 
-#' Calculate the width of a textGrob, in npc
+#' Calculate the width of a textGrob, in mm
 #' 
 #' @noRd
 tgWidth <- function(tg) {
-  grid::convertWidth(grid::grobWidth(tg), "npc", valueOnly = TRUE)
+  grid::convertWidth(grid::grobWidth(tg), "mm", valueOnly = TRUE)
 }
 
-#' Calculate the height of a textGrob, in npc
+#' Calculate the height of a textGrob, in mm
 #' 
 #' @noRd
 tgHeight <- function(tg) {
-  grid::convertHeight(grid::grobHeight(tg), "npc", valueOnly = TRUE)
+  grid::convertHeight(grid::grobHeight(tg), "mm", valueOnly = TRUE)
 }
 
-#' Calculate the descender-height of a textGrob, in npc
+#' Calculate the descender-height of a textGrob, in mm
 #' 
 #' @noRd
 tgDheight <- function(tg) {
-  grid::convertHeight(grid::grobDescent(tg), "npc", valueOnly = TRUE)
+  grid::convertHeight(grid::grobDescent(tg), "mm", valueOnly = TRUE)
 }
 
 # Draw the circle
@@ -86,22 +85,24 @@ lines$height <- vapply(lines$tg, tgHeight, double(1))
 lines$dheight <- vapply(lines$tg, tgDheight, double(1))
 
 # Set a lineheight in npc based on the tallest line height
-lineheight <- dev_lineheight * max(lines$height)
+lineheight <- grid::unit(dev_lineheight * max(lines$height), "mm")
+lineheight <- grid::convertHeight(lineheight, "npc", valueOnly = TRUE)
 
 # Distribute the lines, centred on (0, 0)
 lines$x <- 0
 lines$y <- 0:(nrow(lines) - 1) * -lineheight
 lines$y <- lines$y + abs(mean(range(lines$y)))
 
-# Determine the left-sided vertices of the bounding boxes (including
-# descenders) for each line. We can ignore the right side as the boxes are
-# horizontally symmetric
-xs <- rep(-(lines$width / 2), 2)
-topleftys <- lines$y + (lines$height / 2)
-bottomleftys <- lines$y - (lines$height / 2) - lines$dheight
-ys <- c(topleftys, bottomleftys)
+# Determine the coordinates of the right-sided vertices of the bounding boxes
+# (including descenders) for each line. We can ignore the left side as the
+# boxes are horizontally symmetric. To allow for non-square coordinate fields,
+# these coordinates are expressed in mm
+xs <- rep((lines$width / 2), 2)
+topys <- grid::convertHeight(grid::unit(lines$y, "npc"), "mm", valueOnly = TRUE) + (lines$height / 2)
+bottomys <- grid::convertHeight(grid::unit(lines$y, "npc"), "mm", valueOnly = TRUE) - (lines$height / 2) - (lines$dheight)
+ys <- c(topys, bottomys)
 
-# Determine the distance from the origin of each vertex
+# Determine the distance from the origin of each vertex, in mm
 ds <- sqrt(abs(xs ^ 2 + ys ^ 2))
 
 # Find the ratio between the highest distance and the radius of the circle;
