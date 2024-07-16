@@ -26,12 +26,16 @@ devtools::install_github("wilkox/ggcircumscribe")
 
 ggcircumscribe is not yet on CRAN.
 
-## Example
+## Usage
 
-ggcircumscribe currently provides only one geom, `geom_circumscribe()`.
-The radius of the circle in which the text is to be drawn is currently
-set as an absolute `grid::unit()` value; this is likely to change in
-future as use cases for the package are more clearly defined.
+The main geom is `geom_circumscribe()`, which shrinks, grows, or reflows
+(wraps) text to fit a circle. The radius of the circle is set with an
+absolute `grid::unit()` value; this is likely to change in future as use
+cases for the package are more clearly defined.
+
+The package also provides `geom_abs_circle()` for drawing circles
+defined with plot-scale x and y coordinates but absolute `grid::unit()`
+radius.
 
 ``` r
 library(ggplot2)
