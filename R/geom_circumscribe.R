@@ -93,6 +93,8 @@ GeomCircumscribe <- ggplot2::ggproto(
   ),
 
   setup_params = function(data, params) {
+    cli::cli_alert_warning("The {.arg grow} argument is not yet implemented")
+    cli::cli_alert_warning("The {.arg reflow} argument is not yet implemented")
     params
   },
 

@@ -1,5 +1,5 @@
 Package: ggcircumscribe
-Title: What the Package Does (One Line, Title Case)
+Title: Fit text inside a circle in 'ggplot2'
 Version: 0.0.0.9000
 Authors@R: 
     person("David", "Wilkins", , "david@wilkox.org", role = c("aut", "cre"))

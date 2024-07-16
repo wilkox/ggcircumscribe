@@ -12,6 +12,7 @@ geom_circumscribe(
   na.rm = FALSE,
   show.legend = NA,
   inherit.aes = TRUE,
+  radius = grid::unit(50, "mm"),
   padding = grid::unit(4, "mm"),
   grow = FALSE,
   reflow = FALSE,
@@ -21,6 +22,9 @@ geom_circumscribe(
 \arguments{
 \item{mapping, data, stat, position, na.rm, show.legend, inherit.aes, ...}{Standard
 geom arguments as for \code{ggplot2::geom_text()}.}
+
+\item{radius}{Radius of the circle. A \code{grid::unit()} object. Defaults to 50
+mm.}
 
 \item{padding}{Padding between the text and the circle. A \code{grid::unit()}
 object. Defaults to \code{grid::unit(4, "mm")}.}
@@ -47,8 +51,8 @@ circle as tightly as possible. If the text is still too big for the circle
 after reflowing, it will be shrunk as usual. Existing line breaks are
 respected when reflowing.
 
-TODO need to figure out a principled mapping of data to radius, or
-alternatively another aesthetic that could reasonably be mapped to radius.
+For now, radius is expressed as an absolute parameter rather than a plot
+aesthetic. This is liable to change in future.
 }
 \section{Aesthetics}{
 
@@ -56,14 +60,13 @@ alternatively another aesthetic that could reasonably be mapped to radius.
 \item label (required)
 \item x (required)
 \item y (required)
-\item radius (required)
 \item alpha
 \item angle
 \item colour
 \item family
 \item fontface
 \item lineheight
-\item size
+\item fontsize
 }
 }
 
