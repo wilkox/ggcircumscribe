@@ -71,6 +71,7 @@ geom_circumscribe <- function(
       radius = radius,
       padding = padding,
       grow = grow,
+      reflow = reflow,
       ...
     )
   )
@@ -93,7 +94,6 @@ GeomCircumscribe <- ggplot2::ggproto(
   ),
 
   setup_params = function(data, params) {
-    cli::cli_alert_warning("The {.arg reflow} argument is not yet implemented")
     params
   },
 
@@ -152,110 +152,216 @@ makeContent.circumscribetree <- function(gt) {
       fontface = text$fontface
     )
 
-    # Split the label into lines
-    label <- text$label
-    lines <- unlist(stringi::stri_split(label, regex = "\n"))
+    # Function to generate a collection of textGrobs for the text, and
+    # calculate the radii of their bounding boxes
+    lay_out <- function(t) {
 
-    # Identify all the line-wise locations of whitespace in the text (i.e.
-    # possible widths to wrap to). Include the full lengths of each line, to
-    # allow for the wrapless wrap
-    breakpoints <- lapply(
-      lines,
-      function(line) stringi::stri_locate_all(line, regex = "\\s")[[1]][,1]
-    )
-    breakpoints <- c(breakpoints, stringi::stri_length(lines))
-    breakpoints <- sort(unique(unlist(breakpoints)))
+      # Split the label into lines
+      layout <- data.frame(line = unlist(stringi::stri_split(t, regex = "\n")))
 
-    # Generate wraps for those lengths
-    wraps <- data.frame(wrapwidth = breakpoints)
-    wraps$wrap <- vapply(wraps$wrapwidth, function(w) {
-      paste0(lapply(lines, function(line) {
-        paste0(
-          stringi::stri_wrap(str = line, width = w, normalise = FALSE),
-          collapse = "\n"
-        )
-      } ), collapse = "\n")
-    }, character(1))
-
-    # Calculate each wrap's aspect ratio
-    wraps$tg <- lapply(wraps$wrap, function(wrap) { grid::textGrob(label = wrap, gp = base_gpar) })
-    wraps$width <- vapply(wraps$tg, tgWidth, double(1))
-    wraps$height <- vapply(wraps$tg, tgHeight, double(1))
-    wraps$aspect_ratio <- wraps$width / wraps$height
-
-    # Pick the wrap with the aspect ratio closest to 1
-    wraps$ar_diff <- abs(1 - wraps$aspect_ratio)
-    label <- wraps[which(wraps$ar_diff == min(wraps$ar_diff))[1], "wrap"]
-
-    # Split the label into lines
-    lines <- data.frame(label = unlist(stringi::stri_split(label, regex = "\n")))
-
-    # Generate a textGrob for each line
-    lines$tg <- lapply(
-      lines$label,
-      function(label) grid::textGrob(label = label, gp = base_gpar)
-    )
-
-    # Calculate the height, descender-height, and width of each line
-    lines$width <- vapply(lines$tg, tgWidth, double(1))
-    lines$height <- vapply(lines$tg, tgHeight, double(1))
-    lines$dheight <- vapply(lines$tg, tgDheight, double(1))
-
-    # Set a lineheight in npc based on the tallest line height
-    lineheight <- grid::unit(text$lineheight * max(lines$height), "mm")
-    lineheight <- grid::convertHeight(lineheight, "npc", valueOnly = TRUE)
-
-    # Distribute the lines, centred on (0, 0)
-    lines$x <- 0
-    lines$y <- 0:(nrow(lines) - 1) * -lineheight
-    lines$y <- lines$y + abs(mean(range(lines$y)))
-
-    # Determine the coordinates of the right-sided vertices of the bounding boxes
-    # (including descenders) for each line. We can ignore the left side as the
-    # boxes are horizontally symmetric. To allow for non-square coordinate fields,
-    # these coordinates are expressed in mm
-    xs <- rep((lines$width / 2), 2)
-    topys <- grid::convertHeight(grid::unit(lines$y, "npc"), "mm", valueOnly = TRUE) + (lines$height / 2)
-    bottomys <- grid::convertHeight(grid::unit(lines$y, "npc"), "mm", valueOnly = TRUE) - (lines$height / 2) - (lines$dheight)
-    ys <- c(topys, bottomys)
-
-    # Determine the distance from the origin to each vertex, in mm
-    ds <- sqrt(abs(xs ^ 2 + ys ^ 2))
-
-    # Find the ratio between the highest distance and the radius of the circle
-    # minus padding; this is the scaling factor
-    scaling_factor <- (as.numeric(gt$radius) - grid::convertWidth(gt$padding, "mm", valueOnly = TRUE)) / max(ds)
-
-    # If the text is larger than the circle (i.e. scaling_factor < 1), or if
-    # grow is set, resize the text to fit the circle
-    if (scaling_factor < 1 | gt$grow) {
-      lines$tg <- lapply(
-        lines$tg,
-        function(tg) {
-          tg$gp$fontsize <- tg$gp$fontsize * scaling_factor
-          tg
-        }
+      # Generate a textGrob for each line
+      layout$tg <- lapply(
+        layout$line,
+        function(line) grid::textGrob(label = line, gp = base_gpar)
       )
-      lines$y <- lines$y * scaling_factor
+
+      # Calculate the height, descender-height, and width of each line
+      layout$width <- vapply(layout$tg, tgWidth, double(1))
+      layout$height <- vapply(layout$tg, tgHeight, double(1))
+      layout$dheight <- vapply(layout$tg, tgDheight, double(1))
+
+      # Set a lineheight in npc based on the tallest line height
+      lineheight <- grid::unit(text$lineheight * max(layout$height), "mm")
+      lineheight <- grid::convertHeight(lineheight, "npc", valueOnly = TRUE)
+
+      # Distribute the lines, centred on (0, 0)
+      layout$x <- 0
+      layout$y <- 0:(nrow(layout) - 1) * -lineheight
+      layout$y <- layout$y + abs(mean(range(layout$y)))
+
+      # Determine the coordinates of the right-sided vertices of the bounding
+      # boxes (including descenders) for each line. We can ignore the left side
+      # as the boxes are horizontally symmetric. To allow for non-square
+      # coordinate fields, these coordinates are expressed in mm
+      layout$bb_x <- lapply(layout$width, function(w) rep(w / 2, 2))
+      layout$bb_y <- lapply(1:nrow(layout), function(i) {
+        topy <- grid::convertHeight(grid::unit(layout$y[i], "npc"), "mm", valueOnly = TRUE) + (layout$height[i] / 2)
+        bottomy <- grid::convertHeight(grid::unit(layout$y[i], "npc"), "mm", valueOnly = TRUE) - (layout$height[i] / 2) - (layout$dheight[i])
+        c(topy, bottomy)
+      })
+
+      # Determine the radius (distance from the origin) of each vertex, in mm
+      layout$radius <- lapply(1:nrow(layout), function(i) {
+        sqrt(abs(layout$bb_x[[i]] ^ 2 + layout$bb_y[[i]] ^ 2))
+      })
+
+      return(layout)
     }
 
-    # Re-centre the textGrobs on the circle centre
-    lines$x <- lines$x + text$x
-    lines$y <- lines$y + text$y
+    # Start by generating a layout for the text as-is
+    layout <- lay_out(text$label)
 
-    # Pan-sear the textGrobs to really seal in the Cartesian coordinates
-    lines$tg <- lapply(1:nrow(lines), function(i) {
-      tg <- lines$tg[[i]]
-      tg$x <- grid::unit(lines$x[i], "npc")
-      tg$y <- grid::unit(lines$y[i], "npc")
-      tg
-    })
+    # Function to test if layout fits inside the bounding circle
+    fits_bounding_circle <- function(layout) {
+      all(unlist(layout$radius) < as.numeric(gt$radius) - grid::convertWidth(gt$padding, "mm", valueOnly = TRUE))
+    }
 
-    return(lines$tg)
+    # Function to take a finalised layout and prepare a final list of textGrobs
+    # to be returned
+    prepare_finalised_tgs <- function(layout) {
+
+      # Re-centre the textGrobs on the circle centre
+      layout$x <- layout$x + text$x
+      layout$y <- layout$y + text$y
+
+      # Pan-sear the textGrobs to really seal in the Cartesian coordinates
+      layout$tg <- lapply(1:nrow(layout), function(i) {
+        tg <- layout$tg[[i]]
+        tg$x <- grid::unit(layout$x[i], "npc")
+        tg$y <- grid::unit(layout$y[i], "npc")
+        tg
+      })
+
+      return(layout$tg)
+    }
+
+    # If the as-is layout fits and grow is not set, we can stop at this point
+    # and return the textGrobs
+    if (fits_bounding_circle(layout) & ! gt$grow) {
+      return(prepare_finalised_tgs(layout))
+    }
+
+    # If reflow is set, at this point we generate the optimal reflow
+    if (gt$reflow) {
+
+      # We use a somewhat efficient greedy algorithm to select the optimal
+      # reflow.
+      #
+      # 1. Identify the one or two breakpoints for each line of the text (i.e.
+      # the existing line breaks are kept as-is) that most closely bisect the
+      # line, and every combination of those breakpoints across lines (i.e.
+      # every possible combination where zero, one, or two new bisecting
+      # breakpoints is added to each line).
+      # 2. For each breakpoint, calculate the maximum radius of the text
+      # bounding boxes in the resulting layout.
+      # 3. Select the breakpoint from step 1 that among those breakpoints that
+      # minimise the radius, has the minimal range in radius, and add a line
+      # break at this point.
+      # 4. Repeat steps 1-3 until no breakpoint is identified that results in a
+      # radius smaller than that from the previous step, or until no new
+      # breakpoints remain. 
+
+      # As a preparatory step, strip out unnecessary whitespace
+      text$label <- stringi::stri_replace_all(text$label, "", regex = "^\\s+|\\s+$")
+      text$label <- stringi::stri_replace_all(text$label, " ", regex = "[^\\S\\r\\n]+")
+
+      best_radius <- Inf
+      cli::cli_h1("Preparing to reflow")
+      cli::cli_text(text$label)
+      while (TRUE) {
+
+        cli::cli_h2("Starting a reflow iteration")
+        cli::cli_alert_info("Current text:")
+        cli::cli_verbatim(text$label)
+        cli::cli_alert_info("With radius == {best_radius}")
+
+        # For each line, identify the one or two breakpoints (whitespace) that
+        # most closely bisect the line
+        lines <- unlist(stringi::stri_split(text$label, regex = "\n"))
+        breakpoints <- lapply(lines, function(line) {
+          breakpoints <- stringi::stri_locate_all(line, regex = "\\s")[[1]][,1]
+          midpoint <- (stringi::stri_length(line) / 2) + 0.5
+          dist_from_midpoint <- abs(midpoint - breakpoints)
+          breakpoints[which(dist_from_midpoint == min(dist_from_midpoint))]
+        })
+
+        # If there are no possible new reflows, the current reflow is selected
+        cli::cli_alert_info("Identified {length(na.omit(unlist(breakpoints)))} breakpoints to test")
+        if (length(na.omit(unlist(breakpoints))) == 0) break
+
+        # For each line, generate a reflow with the text broken at each
+        # breakpoint, as well as with no new breaks
+        lines <- lapply(1:length(lines), function(i) {
+          c(vapply(breakpoints[[i]], function(breakpoint) {
+            stringi::stri_sub_replace(lines[i], breakpoint, breakpoint, replacement = "\n")
+          }, character(1)), lines[i])
+        })
+        lines <- lapply(lines, na.omit)
+
+        # Generate all combinations of the line reflows
+        reflows <- data.frame(reflow = do.call(paste, c(do.call(expand.grid, lines), sep = "\n")))
+        cli::cli_alert_info("Generated {nrow(reflows)} reflows from these breakpoint combinations")
+
+        # Generate a layout for each reflow
+        reflows$layout <- lapply(reflows$reflow, lay_out)
+
+        # Calculate the maximum radius for each reflow
+        reflows$max_r <- vapply(reflows$layout, function(layout) {
+          max(unlist(layout$radius))
+        }, double(1))
+
+        # If the reflow with the smallest maximum radius still has a radius
+        # larger than or equal to the current best radius, stop the search here
+        if (min(reflows$max_r) >= best_radius) {
+          cli::cli_alert_info("Smallest maximum radius is {min(reflows$max_r)}, this does not beat current best radius, stopping here")
+          break
+        }
+
+        # Otherwise, select the reflow which, among those reflows with the
+        # minimal maximum radius, has the minimal range in radius, and
+        # continue the search
+        cli::cli_alert_info("There are {length(which(reflows$max_r == min(reflows$max_r)))} reflows with equal lowest max radius")
+        reflows <- reflows[which(reflows$max_r == min(reflows$max_r)), ]
+        reflows$r_range <- vapply(reflows$layout, function(layout) {
+          diff(range(unlist(layout$radius)))
+        }, double(1))
+        cli::cli_alert_info("There are {length(which(reflows$r_range == min(reflows$r_range)))} reflows with equal lowest range in radius")
+        reflows <- reflows[which(reflows$r_range == min(reflows$r_range))[1], ]
+        text$label <- reflows$reflow
+        best_radius <- reflows$max_r
+        cli::cli_alert_info("Best reflow is:")
+        cli::cli_verbatim(text$label)
+        cli::cli_alert_info("With radius == {best_radius}")
+
+      }
+
+      cli::cli_alert_info("Exited reflowing with text:")
+      cli::cli_verbatim(text$label)
+
+      # Update the working layout with the reflowed text
+      layout <- lay_out(text$label)
+
+      # If the reflowed layout fits and grow is not set, we can stop at this
+      # point and return the textGrobs
+      if (fits_bounding_circle(layout) & ! gt$grow) {
+        return(prepare_finalised_tgs(layout))
+      }
+
+    }
+
+    # Now it is time to resize the text, either because it is still too big to
+    # fit the circle (even after rescaling if that was set), or because grow
+    # has been set so we want to make it as large as possible
+
+    # Find the ratio between the largest bounding box radius in the current
+    # layout and the radius of the bounding circle minus padding; this is the
+    # scaling factor
+    scaling_factor <- (as.numeric(gt$radius) - grid::convertWidth(gt$padding, "mm", valueOnly = TRUE)) / max(unlist(layout$radius))
+
+    # Resize the text to fit the bounding circle
+    layout$tg <- lapply(
+      layout$tg,
+      function(tg) {
+        tg$gp$fontsize <- tg$gp$fontsize * scaling_factor
+        tg
+      }
+    )
+    layout$y <- layout$y * scaling_factor
+
+    return(prepare_finalised_tgs(layout))
   })
 
   textgrobs <- unlist(textgrobs, recursive = FALSE)
   class(textgrobs) <- "gList"
   grid::setChildren(gt, textgrobs)
 }
-
