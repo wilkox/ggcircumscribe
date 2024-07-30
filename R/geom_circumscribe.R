@@ -231,105 +231,128 @@ makeContent.circumscribetree <- function(gt) {
       return(prepare_finalised_tgs(layout))
     }
 
-    # If reflow is set, at this point we generate the optimal reflow
+    # If reflow is set, reflow the text.
+    #
+    # For efficiency, we use two different algorithms to select the reflow.
+    #
+    # Reflow circularity is scored as the reciprocal of the sum of the maximum
+    # radius of any vertex of any bounding box in the text layout and the
+    # standard deviation of all the vertices.
+    #
+    # For text with <= 9 breakpoints (<= 512 possible reflows), all possible
+    # reflows (combinations of breakpoints) are considered, and the
+    # most circular reflow is selected.
+    #
+    # For text with > 9 breakpoints, a genetic algorithm is used to select a
+    # satisficing reflow.
     if (gt$reflow) {
-
-      # We use a somewhat efficient greedy algorithm to select the optimal
-      # reflow.
-      #
-      # 1. Identify the one or two breakpoints for each line of the text (i.e.
-      # the existing line breaks are kept as-is) that most closely bisect the
-      # line, and every combination of those breakpoints across lines (i.e.
-      # every possible combination where zero, one, or two new bisecting
-      # breakpoints is added to each line).
-      # 2. For each breakpoint, calculate the maximum radius of the text
-      # bounding boxes in the resulting layout.
-      # 3. Select the breakpoint from step 1 that among those breakpoints that
-      # minimise the radius, has the minimal range in radius, and add a line
-      # break at this point.
-      # 4. Repeat steps 1-3 until no breakpoint is identified that results in a
-      # radius smaller than that from the previous step, or until no new
-      # breakpoints remain. 
 
       # As a preparatory step, strip out unnecessary whitespace
       text$label <- stringi::stri_replace_all(text$label, "", regex = "^\\s+|\\s+$")
       text$label <- stringi::stri_replace_all(text$label, " ", regex = "[^\\S\\r\\n]+")
 
-      best_radius <- Inf
       cli::cli_h1("Preparing to reflow")
-      cli::cli_text(text$label)
-      while (TRUE) {
+      cli::cli_verbatim(text$label)
 
-        cli::cli_h2("Starting a reflow iteration")
-        cli::cli_alert_info("Current text:")
-        cli::cli_verbatim(text$label)
-        cli::cli_alert_info("With radius == {best_radius}")
+      # Identify all potential breakpoints in the text
+      breakpoints <- unname(stringi::stri_locate_all(
+        text$label,
+        regex = "[^\\S\\r\\n]+"
+      )[[1]][,1])
 
-        # For each line, identify the one or two breakpoints (whitespace) that
-        # most closely bisect the line
-        lines <- unlist(stringi::stri_split(text$label, regex = "\n"))
-        breakpoints <- lapply(lines, function(line) {
-          breakpoints <- stringi::stri_locate_all(line, regex = "\\s")[[1]][,1]
-          midpoint <- (stringi::stri_length(line) / 2) + 0.5
-          dist_from_midpoint <- abs(midpoint - breakpoints)
-          breakpoints[which(dist_from_midpoint == min(dist_from_midpoint))]
-        })
+      # Function that will generate a data frame of reflows, layouts, and
+      # circularity scores for a list of sets of breakpoints
+      generate_reflows_from_breakpoints <- function(breakpoints_list) {
 
-        # If there are no possible new reflows, the current reflow is selected
-        cli::cli_alert_info("Identified {length(na.omit(unlist(breakpoints)))} breakpoints to test")
-        if (length(na.omit(unlist(breakpoints))) == 0) break
+        reflows <- data.frame(breakpoints = I(breakpoints_list))
 
-        # For each line, generate a reflow with the text broken at each
-        # breakpoint, as well as with no new breaks
-        lines <- lapply(1:length(lines), function(i) {
-          c(vapply(breakpoints[[i]], function(breakpoint) {
-            stringi::stri_sub_replace(lines[i], breakpoint, breakpoint, replacement = "\n")
-          }, character(1)), lines[i])
-        })
-        lines <- lapply(lines, na.omit)
-
-        # Generate all combinations of the line reflows
-        reflows <- data.frame(reflow = do.call(paste, c(do.call(expand.grid, lines), sep = "\n")))
-        cli::cli_alert_info("Generated {nrow(reflows)} reflows from these breakpoint combinations")
+        # Generate a reflow with each combination of breakpoints
+        reflows$reflow <- vapply(
+          reflows$breakpoints,
+          function(breakpoints) stringi::stri_sub_replace_all(
+            text$label,
+            breakpoints,
+            breakpoints,
+            replacement = "\n"
+          ),
+          character(1)
+        )
 
         # Generate a layout for each reflow
         reflows$layout <- lapply(reflows$reflow, lay_out)
 
-        # Calculate the maximum radius for each reflow
-        reflows$max_r <- vapply(reflows$layout, function(layout) {
-          max(unlist(layout$radius))
-        }, double(1))
+        # For each layout, calculate the circularity score
+        reflows$sd_radii <- vapply(
+          reflows$layout,
+          function(layout) layout$radius |> unlist() |> sd(),
+          double(1)
+        )
+        reflows$max_radius <- vapply(
+          reflows$layout,
+          function(layout) layout$radius |> unlist() |> max(),
+          double(1)
+        )
+        reflows$circularity <- 1 / (reflows$max_radius + reflows$sd_radii)
 
-        # If the reflow with the smallest maximum radius still has a radius
-        # larger than or equal to the current best radius, stop the search here
-        if (min(reflows$max_r) >= best_radius) {
-          cli::cli_alert_info("Smallest maximum radius is {min(reflows$max_r)}, this does not beat current best radius, stopping here")
-          break
-        }
-
-        # Otherwise, select the reflow which, among those reflows with the
-        # minimal maximum radius, has the minimal range in radius, and
-        # continue the search
-        cli::cli_alert_info("There are {length(which(reflows$max_r == min(reflows$max_r)))} reflows with equal lowest max radius")
-        reflows <- reflows[which(reflows$max_r == min(reflows$max_r)), ]
-        reflows$r_range <- vapply(reflows$layout, function(layout) {
-          diff(range(unlist(layout$radius)))
-        }, double(1))
-        cli::cli_alert_info("There are {length(which(reflows$r_range == min(reflows$r_range)))} reflows with equal lowest range in radius")
-        reflows <- reflows[which(reflows$r_range == min(reflows$r_range))[1], ]
-        text$label <- reflows$reflow
-        best_radius <- reflows$max_r
-        cli::cli_alert_info("Best reflow is:")
-        cli::cli_verbatim(text$label)
-        cli::cli_alert_info("With radius == {best_radius}")
-
+        return(reflows)
       }
 
+      # If the total number of breakpoints <= 9, consider all possible reflows
+      if (length(breakpoints) <= 9) {
+
+        # Generate all possible combinations of breakpoints
+        breakpoints_list <- lapply(0:length(breakpoints), function(size) {
+            
+          # Because combn is stupid
+          if (length(breakpoints) == 1) {
+              breakpoints[size]
+            } else {
+              combn(breakpoints, size, simplify = FALSE)
+          }
+
+          }) |>
+            unlist(recursive = FALSE)
+
+        # Generate a reflow, layout, and circularity score for each combination
+        # of breakpoints
+        reflows <- generate_reflows_from_breakpoints(breakpoints_list)
+
+        # Select the most circular reflow, updating the working text and layout
+        reflow <- reflows[which(reflows$circularity == max(reflows$circularity))[1], ]
+        text$label <- reflow$reflow
+        layout <- reflow$layout[[1]]
+
+      # If the total number of breakpoints > 9, use a genetic algorithm to
+      # select a satisficing reflow
+      } else {
+
+        cli::cli_h2("Entering genetic algorithm")
+
+        # Set seed to ensure deteministic results
+        set.seed(1)
+
+        # Function to breed together two parents. Homozygote allele has 90%
+        # probability of propogating, heterozygote is a 50/50 coin toss
+        breed <- function(p1, p2) {
+          vapply(
+            (0.4 * (p1 + p2)) + 0.1,
+            function(p) sample(c(TRUE, FALSE), 1, prob = c(p, 1 - p)),
+            logical(1)
+          )
+        }
+
+        # Generate initial population, seeding with a 50% probability of a
+        # break at any given point
+        population <- lapply(1:10, function(i) {
+          breakpoints %in% sample(breakpoints, size = sample(1:length(breakpoints), 1))
+        })
+
+
+
+      }
+      
       cli::cli_alert_info("Exited reflowing with text:")
       cli::cli_verbatim(text$label)
-
-      # Update the working layout with the reflowed text
-      layout <- lay_out(text$label)
 
       # If the reflowed layout fits and grow is not set, we can stop at this
       # point and return the textGrobs
